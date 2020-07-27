@@ -12,13 +12,18 @@ import { ProfileCardEditButton } from './profile_card_edit_button/profile_card_e
 import { ProfileCardEditDialog } from './profile_card_edit_dialog/profile_card_edit_dialog';
 import { ProfileCardIncompletePopper } from './profile_card_incomplete_popper/profile_card_incomplete_popper';
 
-import { SET_SIDE, SET_VARIANT } from '../../../store/profile_card/profile_card_actions_types';
+import {
+    SET_CHANGING_SIDES,
+    SET_IS_EDITING,
+    SET_SIDE,
+    SET_VARIANT
+} from '../../../store/profile_card/profile_card_actions_types';
 import { getProfileCardInitialState, profileCardReducer } from '../../../store/profile_card/profile_card_reducer';
-
-import { styles } from './profile_card_styles';
+import { DeveloperProfileContext } from '../../../utils/context/contexts';
 import { PROFILE_CARD_EDIT_BUTTON_TRANSITIONS_SPRING_PROPS } from './profile_card_spring_props';
 import { SIDES } from './profile_card_side/side';
-import { DeveloperProfileContext } from '../../../utils/context/contexts';
+
+import { styles } from './profile_card_styles';
 
 const useStyles = createUseStyles(styles);
 
@@ -51,6 +56,10 @@ const ProfileCardComponent = ({
 
     const classes = useStyles({ variant });
     const theme = useTheme();
+    const isSmall = useMediaQuery(`(max-width: ${theme.screenSizes.small}px)`, {
+        defaultMatches: true
+    });
+
     const [containerElement, setContainerElement] = useState();
     const containerReference = useRef();
     const [openEditDialog, setOpenEditDialog] = useState(false);
@@ -62,13 +71,14 @@ const ProfileCardComponent = ({
         setForceOpenEditDialog(false);
     }, []);
 
-    const [state, dispatch] = useReducer(
-        profileCardReducer,
+    const [state, dispatch] = useReducer(profileCardReducer, {}, () =>
         getProfileCardInitialState({
             variant,
-            side: sideProps
+            side: sideProps || SIDES.FRONT,
+            isEditing: isEditingProfile
         })
     );
+    const { side, hasDialogOpened } = state;
 
     useEffect(() => {
         dispatch({
@@ -76,22 +86,37 @@ const ProfileCardComponent = ({
             variant
         });
     }, [variant]);
+
     useEffect(() => {
+        dispatch({
+            type: SET_IS_EDITING,
+            value: isEditingProfile
+        });
+    }, [isEditingProfile]);
+
+    useEffect(() => {
+        if (sideProps === side) {
+            return;
+        }
         dispatch({
             type: SET_SIDE,
             side: sideProps || SIDES.FRONT
         });
     }, [sideProps]);
 
-    const { side, hasDialogOpened } = state;
+    const setChangingSides = useCallback(
+        (value) => {
+            dispatch({
+                type: SET_CHANGING_SIDES,
+                value
+            });
+        },
+        [isSmall]
+    );
 
     useEffect(() => {
         setContainerElement(containerReference.current);
     }, []);
-
-    const isSmall = useMediaQuery(`(max-width: ${theme.screenSizes.small}px)`, {
-        defaultMatches: true
-    });
 
     const transitionsSpringProps = useMemo(() => {
         if (customTransitionsSpringProps) {
@@ -103,13 +128,15 @@ const ProfileCardComponent = ({
         return DEFAULT_TRANSITIONS_SPRING_PROPS;
     }, [customTransitionsSpringProps, side]);
 
-    const hasSideChanged = useRef(false);
-
     const setSide = useCallback(
         (newSide) => {
             if (sideProps) {
                 return;
             }
+            if (state.changingSides) {
+                return;
+            }
+            setChangingSides(true);
             if (changeSideTimeout.current) {
                 clearTimeout(changeSideTimeout.current);
             }
@@ -134,17 +161,12 @@ const ProfileCardComponent = ({
         setSide(SIDES.FRONT);
     }, [hasDialogOpened, setSide]);
 
-    useEffect(() => {
-        if (hasSideChanged.current) {
-            return;
-        }
-        hasSideChanged.current = true;
-    }, [side]);
-
     const transitions = useTransition(side, (item) => `card_side_${item}_${kind}`, {
         ...transitionsSpringProps,
         unique: isTransitionUnique,
-        immediate: !hasSideChanged.current
+        onDestroyed: () => {
+            setChangingSides(false);
+        }
     });
     const handleAddButtonClick = useCallback(() => {
         setOpenEditDialog(true);
